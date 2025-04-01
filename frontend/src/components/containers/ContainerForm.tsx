@@ -16,7 +16,7 @@ import {
     Grid as MuiGrid,
     SelectChangeEvent
 } from '@mui/material';
-import { createContainer } from '../../services/containerService';
+import { createContainer, checkContainerExists } from '../../services/containerService';
 import { ContainerCreate } from '../../types/Container';
 
 // normal "Grid item", "Grid container" was not working
@@ -38,17 +38,14 @@ const ContainerForm: React.FC<ContainerFormProps> = ({ onClose }) => {
     });
 
     const [loading, setLoading] = useState<boolean>(false);
+    const [checking, setChecking] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
+    const [idExists, setIdExists] = useState<boolean>(false);
 
     const zones = [
-        'Crew Quarters',
-        'Science Lab',
-        'Storage Bay',
-        'Life Support',
-        'Control Room',
-        'Airlock',
-        'Medical Bay',
-        'Engineering'
+        'Sanitation Bay', 'Command Center', 'Engineering Bay', 'Power Bay',
+        'External Storage', 'Lab', 'Storage Bay', 'Engine Bay', 'Life Support',
+        'Maintenance Bay', 'Crew Quarters', 'Medical Bay', 'Cockpit', 'Airlock', 'Greenhouse'
     ];
 
     const handleTextFieldChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -60,6 +57,33 @@ const ContainerForm: React.FC<ContainerFormProps> = ({ onClose }) => {
                     ? parseFloat(value) || 0
                     : value
             }));
+
+            // Check container ID existence when it changes
+            if (name === 'container_id' && value.trim().length > 0) {
+                checkContainerId(value);
+            } else if (name === 'container_id' && value.trim().length === 0) {
+                setIdExists(false);
+                setError(null);
+            }
+        }
+    };
+
+    const checkContainerId = async (id: string) => {
+        if (id.trim() === '') return;
+
+        try {
+            setChecking(true);
+            const exists = await checkContainerExists(id);
+            setIdExists(exists);
+            if (exists) {
+                setError(`Container ID '${id}' already exists. Please use a unique ID.`);
+            } else {
+                setError(null);
+            }
+        } catch (err) {
+            console.error('Error checking container ID:', err);
+        } finally {
+            setChecking(false);
         }
     };
 
@@ -83,8 +107,17 @@ const ContainerForm: React.FC<ContainerFormProps> = ({ onClose }) => {
             return;
         }
 
+        // Check again if container ID exists
         try {
             setLoading(true);
+            const exists = await checkContainerExists(formData.container_id);
+
+            if (exists) {
+                setError(`Container ID '${formData.container_id}' already exists. Please use a unique ID.`);
+                setLoading(false);
+                return;
+            }
+
             await createContainer(formData);
             onClose(true); // Refresh container list
         } catch (err) {
@@ -111,7 +144,15 @@ const ContainerForm: React.FC<ContainerFormProps> = ({ onClose }) => {
                             onChange={handleTextFieldChange}
                             variant="outlined"
                             margin="normal"
-                            helperText="Unique identifier for this container"
+                            helperText={
+                                checking ? "Checking ID..." :
+                                    idExists ? "This ID already exists" :
+                                        "Unique identifier for this container"
+                            }
+                            error={idExists}
+                            InputProps={{
+                                endAdornment: checking ? <CircularProgress size={20} /> : undefined
+                            }}
                         />
                     </GridItem>
 
@@ -203,7 +244,7 @@ const ContainerForm: React.FC<ContainerFormProps> = ({ onClose }) => {
                 <Button
                     type="submit"
                     variant="contained"
-                    disabled={loading}
+                    disabled={loading || idExists}
                     startIcon={loading ? <CircularProgress size={20} /> : undefined}
                 >
                     {loading ? 'Creating...' : 'Create Container'}

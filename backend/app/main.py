@@ -29,7 +29,7 @@ app.add_middleware(
 )
 
 # MongoDB connection string from environment variable or default
-mongo_uri = os.environ.get("MONGODB_URI", "mongodb+srv://vanshchheda:Mj9rlwt3DJcpTDsw@cluster0.g9d1lnn.mongodb.net/")
+mongo_uri = os.environ.get("MONGODB_URI", "mongodb://localhost:27017/")
 db_name = os.environ.get("DB_NAME", "space_stowage")
 
 # Connect to MongoDB
@@ -52,7 +52,6 @@ class JSONEncoder(json.JSONEncoder):
 async def root():
     """Health check endpoint"""
     return {"message": "Space Stowage Management System API", "status": "online"}
-
 @app.get("/api/containers", response_model=List[Dict])
 async def get_containers():
 
@@ -83,12 +82,30 @@ async def get_items():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/containers/check/{container_id}")
+async def check_container_exists(container_id: str):
+    #Check if a container with the given ID already exists
+    try:
+        # Find container by ID
+        container = db.containers.find_one({"container_id": container_id})
+        return {"exists": container is not None}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/containers", response_model=Dict)
 async def create_container(container: ContainerCreate):
 
-    # Create a new container
-
+    #Create a new container with validation for existing ID
+    
     try:
+        # Check if a container with this ID already exists
+        existing = db.containers.find_one({"container_id": container.container_id})
+        if existing:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Container with ID '{container.container_id}' already exists"
+            )
+            
         container_dict = {
             "container_id": container.container_id,
             "zone": container.zone,
@@ -104,6 +121,8 @@ async def create_container(container: ContainerCreate):
         container_dict["_id"] = str(result.inserted_id)
         
         return container_dict
+    except HTTPException as he:
+        raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -483,7 +502,7 @@ async def import_items(file: UploadFile = File(...)):
     try:
         # Read CSV file
         contents = await file.read()
-        df = pd.read_csv(io.StringIO(contents.decode("utf-8")))
+        df = pd.read_csv(io.StringIO(contents.decode("utf-8")), keep_default_na=False, na_values=[''])
         
         items = []
         errors = []
@@ -491,23 +510,25 @@ async def import_items(file: UploadFile = File(...)):
         for index, row in df.iterrows():
             try:
                 expiry_date = None
-                if "Expiry Date" in row and row["Expiry Date"] and row["Expiry Date"].lower() != "n/a":
-                    expiry_date = row["Expiry Date"]
+                if "expiry_date" in row and row["expiry_date"] and pd.notna(row["expiry_date"]):
+                    # Check if it's a string and not "N/A"
+                    if isinstance(row["expiry_date"], str) and row["expiry_date"].lower() != "n/a":
+                        expiry_date = row["expiry_date"]
                 
                 item = {
-                    "item_id": row["Item ID"],
-                    "name": row["Name"],
+                    "item_id": str(row["item_id"]),
+                    "name": row["name"],
                     "dimensions": {
-                        "width": float(row["Width (cm)"]),
-                        "depth": float(row["Depth (cm)"]),
-                        "height": float(row["Height (cm)"])
+                        "width": float(row["width_cm"]),
+                        "depth": float(row["depth_cm"]),
+                        "height": float(row["height_cm"])
                     },
-                    "mass": float(row["Mass (kg)"]),
-                    "priority": int(row["Priority (1-100)"]),
+                    "mass": float(row["mass_kg"]),
+                    "priority": int(row["priority"]),
                     "expiry_date": expiry_date,
-                    "usage_limit": int(row["Usage Limit"]),
+                    "usage_limit": int(row["usage_limit"]),
                     "usage_count": 0,
-                    "preferred_zone": row["Preferred Zone"],
+                    "preferred_zone": row["preferred_zone"],
                     "is_waste": False
                 }
                 
@@ -528,7 +549,7 @@ async def import_items(file: UploadFile = File(...)):
         
         return {
             "success": True,
-            "itemsImported": len(items),
+            "itemsImportedCount": len(items),
             "errors": errors
         }
         
