@@ -8,7 +8,7 @@ import { Header, Sidebar } from './components';
 
 // Pages
 // import { Dashboard, ContainersList, ItemsList, PlacementView } from './components';
-import { ContainersList, PlacementView } from './components';
+import { ContainersList, ItemsList, PlacementView } from './components';
 import { Box, Container } from '@mui/material';
 
 const theme = createTheme({
@@ -39,8 +39,8 @@ function App() {
                         sx={{
                             flexGrow: 1,
                             padding: 3,
-                            marginTop: '64px',
-                            marginLeft: '240px',
+                            marginTop: '3.5rem',
+                            marginLeft: '2.5rem',
                             overflow: 'auto',
                         }}
                     >
@@ -48,7 +48,7 @@ function App() {
                             <Routes>
                                 {/* <Route path="/" element={<Dashboard />} /> */}
                                 <Route path="/containers" element={<ContainersList />} />
-                                {/* <Route path="/items" element={<ItemsList />} /> */}
+                                <Route path="/items" element={<ItemsList />} />
                                 <Route path="/placement" element={<PlacementView />} />
                             </Routes>
                         </Container>
