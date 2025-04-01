@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+pymongo
+pandas
+python-multipart
+pydantic
+numpy
+websockets
+pytest
+python-dotenv
