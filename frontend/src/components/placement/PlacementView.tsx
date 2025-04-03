@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Typography, Paper, Alert, CircularProgress, Grid as MuiGrid } from '@mui/material';
+import { Box, Typography, Paper, Alert, CircularProgress, Grid as MuiGrid, Divider } from '@mui/material';
 import ContainerGrid from './ContainerGrid';
 import ItemPlacement from './ItemPlacement';
 import PlacementControls from './PlacementControls';
@@ -7,7 +7,7 @@ import { getContainers } from '../../services/containerService';
 import { getItems } from '../../services/itemService';
 import { Container } from '../../types/Container';
 import { Item } from '../../types/Item';
-import { PlacementRequest, PlacementResult } from '../../types/Placement';
+import { PlacementResult } from '../../types/Placement';
 import { placeItems, simulatePlacement } from '../../services/placementService';
 
 // normal "Grid item", "Grid container" was not working
@@ -74,10 +74,33 @@ const PlacementView: React.FC = () => {
             //filter selected items
             const itemsToPlace = items.filter(item => selectedItemIds.includes(item.item_id));
 
-            //create placement request
-            const request: PlacementRequest = {
-                items: itemsToPlace,
-                containers: containers
+            // Format item data according to what the API expects
+            const formattedItems = itemsToPlace.map(item => ({
+                itemId: item.item_id,
+                name: item.name,
+                width: item.dimensions.width,
+                depth: item.dimensions.depth,
+                height: item.dimensions.height,
+                mass: item.mass,
+                priority: item.priority,
+                expiryDate: item.expiry_date,
+                usageLimit: item.usage_limit,
+                preferredZone: item.preferred_zone
+            }));
+
+            // Format container data
+            const formattedContainers = containers.map(container => ({
+                containerId: container.container_id,
+                zone: container.zone,
+                width: container.dimensions.width,
+                depth: container.dimensions.depth,
+                height: container.dimensions.height
+            }));
+
+            // Create placement request
+            const request = {
+                items: formattedItems,
+                containers: formattedContainers
             };
 
             //call the appropriate API based on simulation mode
@@ -129,8 +152,8 @@ const PlacementView: React.FC = () => {
             )}
 
             <GridContainer spacing={3}>
-                {/* Left side - Container selection */}
-                <GridItem xs={12} md={4}>
+                {/* Left side - Container selection*/}
+                <GridItem xs={12} md={4} lg={3}>
                     <Paper sx={{ p: 2, height: '100%' }}>
                         <Typography variant="h6" gutterBottom>
                             Containers
@@ -143,15 +166,15 @@ const PlacementView: React.FC = () => {
                     </Paper>
                 </GridItem>
 
-                {/* Middle - Container Visualization when a container is selected */}
-                <GridItem xs={12} md={8}>
+                {/* Middle - Container Visualization*/}
+                <GridItem xs={12} md={8} lg={9}>
                     <Paper sx={{ p: 2 }}>
                         {selectedContainer ? (
                             <Box>
                                 <Typography variant="h6" gutterBottom>
                                     Container View
                                 </Typography>
-                                <Box sx={{ height: '600px', width: '100%' }}>
+                                <Box sx={{ height: '650px', width: '100%' }}>
                                     {/* Dynamic import for ContainerVisualizer to avoid issues with Three.js SSR */}
                                     <React.Suspense fallback={<CircularProgress />}>
                                         {React.createElement(
@@ -176,28 +199,35 @@ const PlacementView: React.FC = () => {
 
                 {/* Bottom section - Items and placement controls */}
                 <GridItem xs={12}>
-                    <Paper sx={{ p: 2 }}>
-                        <Typography variant="h6" gutterBottom>
-                            Item Placement
-                        </Typography>
-                        <GridContainer spacing={3}>
-                            <GridItem xs={12} md={7}>
-                                <ItemPlacement
-                                    items={items}
-                                    selectedItem={selectedItem}
-                                    onItemSelect={handleItemSelect}
-                                    placementResult={placementResult}
-                                />
-                            </GridItem>
-                            <GridItem xs={12} md={5}>
-                                <PlacementControls
-                                    items={items.filter(item => !item.container_id)} // Show only unplaced items
-                                    onRunPlacement={handleRunPlacement}
-                                    simulationMode={simulationMode}
-                                    onSimulationToggle={handleSimulationToggle}
-                                />
-                            </GridItem>
-                        </GridContainer>
+                    <Paper sx={{ p: 0 }}>
+                        {/* Item Placement Section */}
+                        <Box sx={{ p: 2 }}>
+                            <Typography variant="h6" gutterBottom>
+                                Available Items
+                            </Typography>
+                            <ItemPlacement
+                                items={items}
+                                selectedItem={selectedItem}
+                                onItemSelect={handleItemSelect}
+                                placementResult={placementResult}
+                            />
+                        </Box>
+
+                        <Divider />
+
+                        {/* Placement Controls Section */}
+                        <Box sx={{ p: 2 }}>
+                            <Typography variant="h6" gutterBottom>
+                                Placement Controls
+                            </Typography>
+                            {/* Redesigned PlacementControls with horizontal layout */}
+                            <PlacementControls
+                                items={items.filter(item => !item.container_id)}
+                                onRunPlacement={handleRunPlacement}
+                                simulationMode={simulationMode}
+                                onSimulationToggle={handleSimulationToggle}
+                            />
+                        </Box>
                     </Paper>
                 </GridItem>
             </GridContainer>

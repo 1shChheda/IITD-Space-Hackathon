@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Box, Typography, Alert, Button } from '@mui/material';
+import { Box, Typography, Alert, Button, Popper, Paper } from '@mui/material';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { Container } from '../../types/Container';
@@ -16,6 +16,18 @@ interface ContainerVisualizerProps {
     onRefresh: () => void;
 }
 
+interface ItemMeshData {
+    mesh: THREE.Mesh;
+    item: Item;
+}
+
+//to generate distinct colors for items
+const generateDistinctColor = (index: number, total: number): string => {
+    //usingg HSL to ensure colors are visually distinct
+    const hue = (index * (360 / Math.max(total, 12))) % 360;
+    return `hsl(${hue}, 70%, 60%)`;
+};
+
 const ContainerVisualizer: React.FC<ContainerVisualizerProps> = ({
     container,
     placedItems,
@@ -31,6 +43,13 @@ const ContainerVisualizer: React.FC<ContainerVisualizerProps> = ({
     const [suggestedPosition, setSuggestedPosition] = useState<PlacementPosition | null>(null);
     const [isPlacing, setIsPlacing] = useState<boolean>(false);
     const ghostMeshRef = useRef<THREE.Mesh | null>(null);
+    const itemMeshesRef = useRef<ItemMeshData[]>([]);
+    const [hoveredItem, setHoveredItem] = useState<Item | null>(null);
+    const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+    const [mousePosition, setMousePosition] = useState<{ x: number, y: number } | null>(null);
+    const [showItemDetails, setShowItemDetails] = useState(false);
+    const raycasterRef = useRef(new THREE.Raycaster());
+    const mouseRef = useRef(new THREE.Vector2());
 
     //Setup 3D scene
     useEffect(() => {
@@ -42,7 +61,7 @@ const ContainerVisualizer: React.FC<ContainerVisualizerProps> = ({
         sceneRef.current = scene;
 
         const width = mountRef.current.clientWidth;
-        const height = 500; //NOTE: Fixed height for visualization
+        const height = mountRef.current.clientHeight || 600;
 
         const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
         camera.position.set(container.dimensions.width * 1.5, container.dimensions.height * 1.5, container.dimensions.depth * 1.5);
@@ -83,22 +102,95 @@ const ContainerVisualizer: React.FC<ContainerVisualizerProps> = ({
         gridHelper.position.y = -0.01; // Just below the container
         scene.add(gridHelper);
 
+        //event-listeners for RAYCASTING
+        const onMouseMove = (event: MouseEvent) => {
+            if (!mountRef.current) return;
+
+            const rect = mountRef.current.getBoundingClientRect();
+            mouseRef.current.x = ((event.clientX - rect.left) / mountRef.current.clientWidth) * 2 - 1;
+            mouseRef.current.y = -((event.clientY - rect.top) / mountRef.current.clientHeight) * 2 + 1;
+
+            setMousePosition({ x: event.clientX, y: event.clientY });
+        };
+
+        const onClick = () => {
+            if (hoveredItem) {
+                setShowItemDetails(!showItemDetails);
+            } else {
+                setShowItemDetails(false);
+            }
+        };
+
+        window.addEventListener('mousemove', onMouseMove);
+        mountRef.current.addEventListener('click', onClick);
+
         // Animation loop
         const animate = () => {
             requestAnimationFrame(animate);
             controls.update();
+
+            // Raycasting for hover effects
+            if (sceneRef.current && cameraRef.current && itemMeshesRef.current.length > 0) {
+                raycasterRef.current.setFromCamera(mouseRef.current, cameraRef.current);
+                const intersects = raycasterRef.current.intersectObjects(
+                    itemMeshesRef.current.map(data => data.mesh),
+                    false
+                );
+
+                // Reset all materials
+                itemMeshesRef.current.forEach(itemData => {
+                    const material = itemData.mesh.material as THREE.MeshLambertMaterial;
+                    material.emissive.set(0x000000);
+                });
+
+                if (intersects.length > 0) {
+                    const selectedObject = intersects[0].object as THREE.Mesh;
+                    const itemData = itemMeshesRef.current.find(data => data.mesh === selectedObject);
+
+                    if (itemData) {
+                        // Highlight the hovered item
+                        const material = selectedObject.material as THREE.MeshLambertMaterial;
+                        material.emissive.set(0x333333);
+                        setHoveredItem(itemData.item);
+                        setAnchorEl(mountRef.current);
+                    }
+                } else {
+                    if (!showItemDetails) {
+                        setHoveredItem(null);
+                        setAnchorEl(null);
+                    }
+                }
+            }
+
             renderer.render(scene, camera);
         };
 
         animate();
 
+        // Handle resize
+        const handleResize = () => {
+            if (!mountRef.current || !rendererRef.current || !cameraRef.current) return;
+
+            const width = mountRef.current.clientWidth;
+            const height = mountRef.current.clientHeight || 600;
+
+            cameraRef.current.aspect = width / height;
+            cameraRef.current.updateProjectionMatrix();
+            rendererRef.current.setSize(width, height);
+        };
+
+        window.addEventListener('resize', handleResize);
+
         // Clean up on unmount
         return () => {
-            scene.clear();
-            renderer.dispose();
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('resize', handleResize);
             if (mountRef.current) {
+                mountRef.current.removeEventListener('click', onClick);
                 mountRef.current.innerHTML = '';
             }
+            scene.clear();
+            renderer.dispose();
         };
     }, []);
 
@@ -110,6 +202,7 @@ const ContainerVisualizer: React.FC<ContainerVisualizerProps> = ({
 
         // Clear previous objects
         scene.clear();
+        itemMeshesRef.current = [];
 
         //adding lights again after clearing
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
@@ -120,7 +213,7 @@ const ContainerVisualizer: React.FC<ContainerVisualizerProps> = ({
         directionalLight.castShadow = true;
         scene.add(directionalLight);
 
-        // Grid helper
+        //grid helper
         const gridHelper = new THREE.GridHelper(
             Math.max(container.dimensions.width, container.dimensions.depth) * 2,
             20,
@@ -161,17 +254,18 @@ const ContainerVisualizer: React.FC<ContainerVisualizerProps> = ({
         scene.add(containerMesh);
         scene.add(containerWireframe);
 
-        // Add all placed items
-        placedItems.forEach(item => {
+        //add all placed items with distinct colors
+        placedItems.forEach((item, index) => {
             if (item.position) {
                 const width = item.position.end_coordinates.width - item.position.start_coordinates.width;
                 const height = item.position.end_coordinates.height - item.position.start_coordinates.height;
                 const depth = item.position.end_coordinates.depth - item.position.start_coordinates.depth;
 
                 const itemGeometry = new THREE.BoxGeometry(width, height, depth);
-                const itemColor = stringToColor(item.item_id);
+
+                const itemColor = generateDistinctColor(index, placedItems.length);
                 const itemMaterial = new THREE.MeshLambertMaterial({
-                    color: itemColor,
+                    color: new THREE.Color(itemColor),
                     transparent: true,
                     opacity: 0.8
                 });
@@ -185,6 +279,8 @@ const ContainerVisualizer: React.FC<ContainerVisualizerProps> = ({
                     item.position.start_coordinates.depth + depth / 2
                 );
 
+                // Store reference to mesh and corresponding item
+                itemMeshesRef.current.push({ mesh: itemMesh, item });
                 scene.add(itemMesh);
 
                 // Add item label
@@ -218,7 +314,7 @@ const ContainerVisualizer: React.FC<ContainerVisualizerProps> = ({
             container.dimensions.width,
             container.dimensions.height,
             container.dimensions.depth
-        ) * 2;
+        ) * 1.7;
 
         cameraRef.current.position.set(cameraDistance, cameraDistance, cameraDistance);
         cameraRef.current.lookAt(
@@ -230,7 +326,7 @@ const ContainerVisualizer: React.FC<ContainerVisualizerProps> = ({
         //update renderer size
         if (mountRef.current) {
             const width = mountRef.current.clientWidth;
-            const height = 500; // Fixed height
+            const height = mountRef.current.clientHeight || 600;
             rendererRef.current.setSize(width, height);
         }
 
@@ -335,7 +431,7 @@ const ContainerVisualizer: React.FC<ContainerVisualizerProps> = ({
     };
 
     return (
-        <Box sx={{ width: '100%' }}>
+        <Box sx={{ width: '100%', height: '100%', position: 'relative' }}>
             {error && (
                 <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
                     {error}
@@ -346,12 +442,62 @@ const ContainerVisualizer: React.FC<ContainerVisualizerProps> = ({
                 ref={mountRef}
                 sx={{
                     width: '100%',
-                    height: '500px',
+                    height: '600px',
                     boxShadow: '0 0 10px rgba(0,0,0,0.1)',
                     borderRadius: '4px',
                     overflow: 'hidden'
                 }}
             />
+
+            {/* Item details popper */}
+            <Popper
+                open={Boolean(hoveredItem) && (showItemDetails || Boolean(hoveredItem && !showItemDetails))}
+                anchorEl={anchorEl}
+                placement="top"
+                modifiers={[
+                    {
+                        name: 'offset',
+                        options: {
+                            offset: [0, 10],
+                        },
+                    },
+                ]}
+                style={{
+                    zIndex: 1200,
+                    pointerEvents: 'none',
+                    left: mousePosition?.x,
+                    top: mousePosition?.y,
+                    position: 'fixed',
+                    transform: 'translate(-50%, -100%)'
+                }}
+            >
+                {hoveredItem && (
+                    <Paper sx={{ p: 2, maxWidth: 300, boxShadow: 3 }}>
+                        <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                            {hoveredItem.name}
+                        </Typography>
+                        <Typography variant="body2">
+                            <strong>ID:</strong> {hoveredItem.item_id}
+                        </Typography>
+                        <Typography variant="body2">
+                            <strong>Dimensions:</strong> {hoveredItem.dimensions.width} × {hoveredItem.dimensions.depth} × {hoveredItem.dimensions.height} cm
+                        </Typography>
+                        <Typography variant="body2">
+                            <strong>Weight:</strong> {hoveredItem.mass} kg
+                        </Typography>
+                        {hoveredItem.priority && (
+                            <Typography variant="body2">
+                                <strong>Priority:</strong> {hoveredItem.priority}
+                            </Typography>
+                        )}
+                        {hoveredItem.expiry_date && (
+                            <Typography variant="body2">
+                                <strong>Expiry:</strong> {hoveredItem.expiry_date}
+                            </Typography>
+                        )}
+                    </Paper>
+                )}
+            </Popper>
 
             <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Typography variant="subtitle1">
@@ -370,12 +516,12 @@ const ContainerVisualizer: React.FC<ContainerVisualizerProps> = ({
                 )}
             </Box>
 
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
                 Container dimensions: {container.dimensions.width}×{container.dimensions.depth}×{container.dimensions.height} cm
             </Typography>
 
             <Typography variant="body2" color="text.secondary">
-                Items placed: {placedItems.length}
+                Items placed: {placedItems.length} (Hover over items to see details)
             </Typography>
         </Box>
     );
